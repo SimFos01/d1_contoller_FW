@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+  <meta charset="UTF-8">
+  <title>Door Controller</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <style>
+    html,body {background: #f6f9fc;}
+    body { font-family: Arial,sans-serif; max-width:700px; margin:auto;}
+    .nav {display:flex;gap:5px;margin:1em 0;}
+    .nav button {flex:1; padding:0.7em 0; border:0; background:#def; color:#036; border-radius:8px 8px 0 0;}
+    .nav button.active {background:#0a9;color:#fff;}
+    .tab {display:none;}
+    .tab.active {display:block;}
+    .section { background:#fff;border-radius:10px;box-shadow:0 2px 8px #0001;margin:1em 0;padding:1.5em;}
+    .logbox {background:#111;color:#bdf;font-size:12px;padding:0.7em;border-radius:7px;height:8em;overflow:auto;}
+    input,select,button {font-size:1em;}
+    .btn {padding:0.5em 1em;border-radius:6px;background:#0a9;color:#fff;border:0;cursor:pointer;}
+    .btn-danger{background:#c44;}
+    .center{text-align:center;}
+    .hide{display:none;}
+    table{width:100%;border-collapse:collapse;}
+    th,td{border:1px solid #ccd;padding:0.4em;}
+    .ping{display:inline-block;width:0.7em;height:0.7em;border-radius:50%;background:#d33;margin-right:0.4em;}
+    .ping.ok{background:#3d5;}
+    .small{font-size:0.9em;color:#666;}
+    .fwver{float:right;}
+  </style>
+</head>
+<body>
+  <h1>Door Controller <span class="fwver" id="fwver"></span></h1>
+  <div class="nav">
+    <button onclick="showTab('status')" id="btn-status">Status</button>
+    <button onclick="showTab('users')" id="btn-users">Brukere</button>
+    <button onclick="showTab('rules')" id="btn-rules">Regler</button>
+    <button onclick="showTab('log')"   id="btn-log">Logg</button>
+    <button onclick="showTab('settings')" id="btn-settings">Innstillinger</button>
+    <button onclick="showTab('mqtt')" id="btn-mqtt">MQTT</button>
+    <button onclick="showTab('console')" id="btn-console">Konsoll</button>
+    <button onclick="showTab('about')" id="btn-about">Om</button>
+  </div>
+
+  <!-- STATUS -->
+  <div class="tab" id="tab-status">
+    <div class="section">
+      <h2>Status</h2>
+      <div>
+        <b>Albuebryter (D7):</b> <span id="status-albue">?</span><br>
+        <b>Magnetkontakt (D2):</b> <span id="status-door">?</span><br>
+        <b>Relé (D1):</b> <span id="status-relay">?</span><br>
+        <b>Heartbeat:</b> <span id="heartbeat"><span class="ping"></span></span>
+        <b>MQTT:</b> <span id="mqtt-status"><span class="ping"></span></span>
+      </div>
+      <br>
+      <button onclick="toggleRelay()" class="btn">Åpne dør</button>
+    </div>
+  </div>
+
+  <!-- USERS -->
+  <div class="tab" id="tab-users">
+    <div class="section">
+      <h2>Brukere (Wiegand Access)</h2>
+      <form id="userform" onsubmit="return addUser()">
+        <label>Navn: <input id="newuser" required autocomplete="off"></label>
+        <label>Wiegand tag: <input id="newtag" required autocomplete="off"></label>
+        <button class="btn">Legg til bruker</button>
+      </form>
+      <table id="userstable">
+        <thead><tr><th>Navn</th><th>Tag</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- RULES -->
+  <div class="tab" id="tab-rules">
+    <div class="section">
+      <h2>Regelmotor</h2>
+      <button class="btn" onclick="showRuleForm()">Ny regel</button>
+      <table id="rulestable"><thead>
+        <tr><th>Navn</th><th>Trigger</th><th>Param</th><th>Aksjon</th><th>Param</th><th></th></tr>
+      </thead><tbody></tbody></table>
+    </div>
+    <!-- Regel-form (popup/modal) -->
+    <div id="ruleformdiv" class="hide center">
+      <div class="section">
+        <h3 id="ruleformtitle">Ny regel</h3>
+        <form id="ruleform" onsubmit="return saveRule()">
+          <label>Navn: <input id="rname" required></label><br>
+          <label>Trigger: 
+            <select id="rtrigger" onchange="onTriggerChange()">
+              <option value="edge">Edge (pin)</option>
+              <option value="wiegand">Wiegand</option>
+              <option value="periodic">Periodisk</option>
+            </select>
+          </label>
+          <label id="rlparam">Param: <input id="rparam" placeholder="D7,HIGH eller sek"></label>
+          <label>Aksjon: 
+            <select id="raction">
+              <option value="relay">Relay</option>
+              <option value="mqtt">MQTT publish</option>
+              <option value="http">HTTP POST</option>
+              <option value="log">Logg</option>
+            </select>
+          </label>
+          <label>Param: <input id="ractparam" placeholder="topic, url, eller tekst"></label>
+          <input type="hidden" id="ruleidx">
+          <br>
+          <button class="btn">Lagre</button>
+          <button type="button" class="btn btn-danger" onclick="hideRuleForm()">Avbryt</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- LOG -->
+  <div class="tab" id="tab-log">
+    <div class="section">
+      <h2>Logg</h2>
+      <div class="logbox" id="logbox">Laster...</div>
+      <button class="btn" onclick="downloadLog()">Last ned logg</button>
+    </div>
+  </div>
+
+  <!-- SETTINGS -->
+  <div class="tab" id="tab-settings">
+    <div class="section">
+      <h2>Innstillinger</h2>
+      <form id="settings-form" onsubmit="return saveSettings()">
+        <label>Device ID: <input id="device_id" name="device_id" readonly></label><br>
+        <label>SSID: <input id="ssid" name="ssid"></label><br>
+        <label>Password: <input id="password" name="password" type="password"></label><br>
+        <label>Relay Pulse (ms): <input id="relay_ms" name="relay_ms" type="number" min="100" max="20000"></label><br>
+        <label>Wiegand format:
+          <select id="wiegand_mode" name="wiegand_mode">
+            <option value="AUTO">AUTO</option>
+            <option value="26">26</option>
+            <option value="34">34</option>
+            <option value="36">36</option>
+          </select>
+        </label><br>
+        <label>Admin kode: <input id="admin_code" name="admin_code" type="password"></label><br>
+        <button type="submit" class="btn">Lagre</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- MQTT / MANAGEMENT -->
+  <div class="tab" id="tab-mqtt">
+    <div class="section">
+      <h2>MQTT & Management</h2>
+      <form id="mqttform" onsubmit="return saveMQTT()">
+        <label>Broker: <input id="mqtt_host" name="mqtt_host" placeholder="f.eks. 192.168.1.50"></label><br>
+        <label>Port: <input id="mqtt_port" name="mqtt_port" type="number" value="1883"></label><br>
+        <label>Bruker: <input id="mqtt_user" name="mqtt_user"></label><br>
+        <label>Passord: <input id="mqtt_pass" name="mqtt_pass" type="password"></label><br>
+        <button type="submit" class="btn">Lagre</button>
+      </form>
+      <div class="small">Topics: <br>
+        doors/&lt;device_id&gt;/open, /lock, /addaccess/&lt;user&gt;/&lt;tag&gt;, /deleteaccess/&lt;user&gt;
+      </div>
+    </div>
+  </div>
+
+  <!-- Konsoll -->
+  <div class="tab" id="tab-console">
+    <div class="section">
+      <h2>Konsoll</h2>
+      <div><input id="console-cmd" placeholder="Kommando (help/status/set ...)" style="width:80%;">
+        <button class="btn" onclick="sendConsole()">Send</button></div>
+      <pre id="console-out"></pre>
+    </div>
+  </div>
+
+  <!-- Om -->
+  <div class="tab" id="tab-about">
+    <div class="section">
+      <h2>Om denne enheten</h2>
+      <div>Firmware: <span id="about-fw"></span></div>
+      <div>Device ID: <span id="about-id"></span></div>
+      <div>API: <code>/settings, /status, /users, /rules, /log, /relay</code></div>
+      <div>Se <a href="https://github.com/SimFos01/door-controller" target="_blank">Github repo</a> for dokumentasjon og oppdateringer.</div>
+    </div>
+  </div>
+
+  <!-- Kodebeskyttelse -->
+  <div id="codeModal" class="hide center" style="position:fixed;top:0;left:0;right:0;bottom:0;background:#0008;z-index:100;">
+    <div class="section" style="margin:10% auto;">
+      <h2>Kode kreves</h2>
+      <input id="modal-code" type="password" maxlength="8" autofocus>
+      <br><br>
+      <button class="btn" onclick="closeCodeModal(true)">OK</button>
+      <button class="btn btn-danger" onclick="closeCodeModal(false)">Avbryt</button>
+      <div id="modal-msg" style="color:#d22"></div>
+    </div>
+  </div>
+
+  <script src="/ui.js"></script>
+  <script>
+    function showTab(id) {
+      document.querySelectorAll('.tab').forEach(e=>e.classList.remove('active'));
+      document.querySelectorAll('.nav button').forEach(e=>e.classList.remove('active'));
+      document.getElementById('tab-'+id).classList.add('active');
+      document.getElementById('btn-'+id).classList.add('active');
+      if(id==='log') loadLog();
+      if(id==='users') loadUsers();
+      if(id==='rules') loadRules();
+      if(id==='settings') loadSettings();
+      if(id==='mqtt') loadMQTT();
+      if(id==='about') loadAbout();
+      if(id==='console') loadConsole();
+    }
+    document.addEventListener('DOMContentLoaded', ()=>showTab('status'));
+    let lastPing=Date.now(); setInterval(()=>{let el=document.querySelector('#heartbeat .ping'); el.className='ping'+((Date.now()-lastPing)<3000?' ok':'');},700);
+
+    // Kodebeskyttelse popup (brukes av sensitive operasjoner)
+    let codeCb=null;
+    function requireCode(cb) {
+      codeCb=cb;
+      document.getElementById('codeModal').classList.remove('hide');
+      document.getElementById('modal-code').value='';
+      document.getElementById('modal-msg').textContent='';
+      setTimeout(()=>document.getElementById('modal-code').focus(),120);
+    }
+    function closeCodeModal(ok) {
+      let code=document.getElementById('modal-code').value;
+      document.getElementById('codeModal').classList.add('hide');
+      if(ok && code) codeCb(code); else codeCb(null);
+      codeCb=null;
+    }
+    document.getElementById('modal-code').addEventListener('keydown',e=>{if(e.key=='Enter')closeCodeModal(true);});
+  </script>
+</body>
+</html>
