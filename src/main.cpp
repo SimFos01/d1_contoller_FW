@@ -167,12 +167,13 @@ void emitWiegand(uint32_t value, uint8_t len) {
 
 // ---- API/WEB ----
 void sendLog(AsyncWebServerRequest *req) {
-  String out = "[";
+  DynamicJsonDocument doc(2048);
+  JsonArray arr = doc.to<JsonArray>();
   for (auto &l : logbuf) {
-    String safe = l; safe.replace("\"", "'");
-    out += "\"" + safe + "\",";
+    arr.add(l);
   }
-  out += "]";
+  String out;
+  serializeJson(arr, out);
   req->send(200, "application/json", out);
 }
 void sendSettings(AsyncWebServerRequest *req) {
